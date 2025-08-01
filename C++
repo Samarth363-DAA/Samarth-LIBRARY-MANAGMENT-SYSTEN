@@ -1,0 +1,450 @@
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <string>
+#include <iomanip>
+#include <ctime>
+#include <map>
+using namespace std;
+
+// ======= Utility Functions =======
+struct Date {
+    int day, month, year;
+    Date(): day(1), month(1), year(2000) {}
+    Date(int d, int m, int y): day(d), month(m), year(y) {}
+
+    static Date today() {
+        time_t t = time(nullptr);
+        tm *lt = localtime(&t);
+        return Date(lt->tm_mday, lt->tm_mon + 1, lt->tm_year + 1900);
+    }
+    string str() const {
+        char buf[11];
+        sprintf(buf, "%02d-%02d-%04d", day, month, year);
+        return string(buf);
+    }
+    static Date fromString(const string& s) {
+        int d, m, y;
+        sscanf(s.c_str(), "%d-%d-%d", &d, &m, &y);
+        return Date(d, m, y);
+    }
+    int daysSince(const Date& other) const {
+        // Rough calculation, for demo purposes
+        return (year - other.year) * 365 + (month - other.month) * 30 + (day - other.day);
+    }
+};
+
+void pressEnter() {
+    cout << "Press Enter to continue...";
+    cin.ignore();
+    cin.get();
+}
+
+// ======= Book Class =======
+class Book {
+public:
+    int id;
+    string title, author, category;
+    bool isIssued;
+    string issuedTo;
+    Date issuedDate;
+    Book() : id(0), isIssued(false) {}
+
+    void input() {
+        cout << "Enter Book ID: "; cin >> id; cin.ignore();
+        cout << "Enter Title: "; getline(cin, title);
+        cout << "Enter Author: "; getline(cin, author);
+        cout << "Enter Category: "; getline(cin, category);
+        isIssued = false; issuedTo = "";
+    }
+
+    void displayShort() const {
+        cout << setw(3) << id << setw(20) << title.substr(0,17)
+             << setw(15) << author.substr(0,13)
+             << setw(14) << category.substr(0,12)
+             << setw(8) << (isIssued ? "Yes" : "No")
+             << setw(15) << (isIssued ? issuedTo : "") << endl;
+    }
+
+    void displayDetail() const {
+        cout << "ID: " << id << "\nTitle: " << title
+             << "\nAuthor: " << author << "\nCategory: " << category
+             << "\nIssued: " << (isIssued ? "Yes" : "No") << "\n";
+        if(isIssued) {
+            cout << "Issued To: " << issuedTo << "\nDate: " << issuedDate.str() << endl;
+        }
+    }
+};
+
+// ======= User Class =======
+class User {
+public:
+    string username, password, name, type; // roles: admin/student
+    vector<int> borrowedBooks;
+
+    User() {}
+
+    void input() {
+        cout << "Enter Username: "; cin >> username;
+        cout << "Enter Name: "; cin.ignore(); getline(cin, name);
+        cout << "Enter Password: "; cin >> password;
+        cout << "Enter Role (admin/student): "; cin >> type;
+    }
+
+    void display() const {
+        cout << "Username: " << username << "\nName: " << name << "\nType: " << type << endl;
+        cout << "Borrowed Book IDs: "; for(int b : borrowedBooks) cout << b << " "; cout << "\n";
+    }
+};
+
+// ======= LibraryDatabase: Handles persistence =======
+class LibraryDatabase {
+public:
+    vector<Book> books;
+    vector<User> users;
+    map<int, vector<pair<string, Date>>> history; // book id -> vector of (username, date)
+
+    void loadBooks() {
+        books.clear();
+        ifstream f("books.dat");
+        int n; f >> n; f.ignore();
+        for(int i=0; i<n; i++) {
+            Book b; string ignoreLine;
+            f >> b.id; f.ignore();
+            getline(f, b.title);
+            getline(f, b.author);
+            getline(f, b.category);
+            f >> b.isIssued; f.ignore();
+            getline(f, b.issuedTo);
+            string dstr; getline(f, dstr);
+            if(dstr != "N/A") b.issuedDate = Date::fromString(dstr);
+            else b.issuedDate = Date();
+            books.push_back(b);
+        }
+        f.close();
+    }
+    void saveBooks() {
+        ofstream f("books.dat");
+        f << books.size() << "\n";
+        for(auto& b : books) {
+            f << b.id << "\n"
+              << b.title << "\n"
+              << b.author << "\n"
+              << b.category << "\n"
+              << b.isIssued << "\n"
+              << b.issuedTo << "\n"
+              << (b.isIssued ? b.issuedDate.str() : "N/A") << "\n";
+        }
+        f.close();
+    }
+    void loadUsers() {
+        users.clear();
+        ifstream f("users.dat");
+        int n; f >> n; f.ignore();
+        for(int i=0; i<n; i++) {
+            User u; 
+            getline(f, u.username);
+            getline(f, u.name);
+            getline(f, u.password);
+            getline(f, u.type);
+            int k; f >> k; f.ignore();
+            u.borrowedBooks.clear();
+            for(int j=0;j<k;j++) {
+                int id; f >> id;
+                u.borrowedBooks.push_back(id);
+            }
+            if(k) f.ignore();
+            users.push_back(u);
+        }
+        f.close();
+    }
+    void saveUsers() {
+        ofstream f("users.dat");
+        f << users.size() << "\n";
+        for(auto& u : users) {
+            f << u.username << "\n"
+              << u.name << "\n"
+              << u.password << "\n"
+              << u.type << "\n"
+              << u.borrowedBooks.size();
+            for(auto id : u.borrowedBooks) f << " " << id;
+            f << "\n";
+        }
+        f.close();
+    }
+    void loadHistory() {
+        history.clear();
+        ifstream f("history.dat");
+        int n; f >> n; f.ignore();
+        for(int k=0;k<n;k++) {
+            int bid, x; f >> bid >> x; f.ignore();
+            vector<pair<string,Date>> h;
+            for(int j=0;j<x;j++) {
+                string u, d; getline(f,u); getline(f,d);
+                h.push_back({u, Date::fromString(d)});
+            }
+            history[bid]=h;
+        }
+        f.close();
+    }
+    void saveHistory() {
+        ofstream f("history.dat");
+        f << history.size() << "\n";
+        for(auto& kv: history) {
+            f << kv.first << " " << kv.second.size() << "\n";
+            for(auto& p : kv.second) {
+                f << p.first << "\n" << p.second.str() << "\n";
+            }
+        }
+        f.close();
+    }
+    // Initial setup: create admin if not present
+    void ensureAdminExists() {
+        loadUsers();
+        bool found = false;
+        for(auto& u : users)
+            if(u.type=="admin") {found=true; break;}
+        if(!found) {
+            User a;
+            a.username="admin";a.name="THE ADMIN";a.password="admin";a.type="admin";
+            users.push_back(a); saveUsers();
+        }
+    }
+};
+
+// ======= Library Logic/Controller =======
+class Library {
+    LibraryDatabase db;
+    User currentUser;
+
+    int searchBookById(int id) {
+        for(int i=0;i<db.books.size();i++)
+            if(db.books[i].id==id) return i;
+        return -1;
+    }
+    int searchUser(const string& uname) {
+        for(int i=0;i<db.users.size();i++)
+            if(db.users[i].username==uname) return i;
+        return -1;
+    }
+
+    void listAllBooks() {
+        cout << setw(3) << "ID" << setw(20) << "Title" << setw(15) << "Author" << setw(14) << "Category"
+             << setw(8) << "Issued" << setw(15) << "IssuedTo" << "\n";
+        for(auto& b: db.books) b.displayShort();
+    }
+    void listBooksByCategory() {
+        cout << "Enter category to search: ";
+        string cat; cin.ignore(); getline(cin, cat);
+        cout << setw(3) << "ID" << setw(20) << "Title" << setw(15) << "Author" << setw(14) << "Category"
+             << setw(8) << "Issued" << setw(15) << "IssuedTo" << "\n";
+        for(auto& b: db.books)
+            if(b.category == cat) b.displayShort();
+    }
+    void viewBookDetail() {
+        cout << "Enter Book ID: ";
+        int id; cin >> id;
+        int idx = searchBookById(id);
+        if(idx==-1) {cout<<"Not found!\n";return;}
+        db.books[idx].displayDetail();
+        if(db.history.count(id)) {
+            cout << "History:\n";
+            for(auto& h:db.history[id])
+                cout << "  " << h.first << " on " << h.second.str() << endl;
+        }
+    }
+    void addBook() {
+        Book b; b.input();
+        if(searchBookById(b.id)!=-1) {
+            cout << "Book ID already exists!\n";
+            return;
+        }
+        db.books.push_back(b);
+        db.saveBooks();
+        cout << "Book added!\n";
+    }
+    void removeBook() {
+        cout << "Enter Book ID to remove: ";
+        int id; cin >> id;
+        int idx = searchBookById(id);
+        if(idx==-1) {cout<<"Book not found\n"; return;}
+        db.books.erase(db.books.begin()+idx);
+        db.saveBooks();
+        cout << "Book removed.\n";
+    }
+    void issueBook() {
+        cout << "Enter Book ID: ";
+        int id; cin >> id;
+        int bidx = searchBookById(id);
+        int uidx = searchUser(currentUser.username);
+        if(bidx == -1 || uidx == -1) {cout << "Not found!\n"; return;}
+        if(db.books[bidx].isIssued) {
+            cout << "Book already issued!\n"; return;
+        }
+        if(currentUser.type=="student" && db.users[uidx].borrowedBooks.size()>=3) {
+            cout<< "Students may borrow at most 3 books.\n"; return;
+        }
+        db.books[bidx].isIssued = true;
+        db.books[bidx].issuedTo = currentUser.username;
+        db.books[bidx].issuedDate = Date::today();
+        db.users[uidx].borrowedBooks.push_back(id);
+        db.history[id].emplace_back(currentUser.username, Date::today());
+        db.saveBooks();
+        db.saveUsers();
+        db.saveHistory();
+        cout << "Book issued to " << currentUser.username << "!\n";
+    }
+    void returnBook() {
+        cout << "Enter Book ID: ";
+        int id; cin >> id;
+        int bidx = searchBookById(id);
+        int uidx = searchUser(currentUser.username);
+        if(bidx==-1 || uidx==-1) {cout << "Not found!\n"; return;}
+        if(!db.books[bidx].isIssued || db.books[bidx].issuedTo != currentUser.username) {
+            cout << "This book is not issued to you!\n"; return;
+        }
+        Date today = Date::today();
+        int days = today.daysSince(db.books[bidx].issuedDate);
+        int fine = days > 15 ? (days-15)*2 : 0;
+        db.books[bidx].isIssued = false;
+        db.books[bidx].issuedTo = "";
+        db.books[bidx].issuedDate = Date();
+        vector<int>& bb = db.users[uidx].borrowedBooks;
+        bb.erase(remove(bb.begin(),bb.end(),id),bb.end());
+        db.saveBooks(); db.saveUsers();
+        cout << "Returned. ";
+        if(fine>0)
+            cout << "Overdue! Fine: Rs."<< fine << endl;
+        else
+            cout << "Thank you, returned on time.\n";
+    }
+    void viewBorrowedBooks() {
+        int uidx = searchUser(currentUser.username);
+        cout << setw(3) << "ID" << setw(20) << "Title" << setw(10) << "Date";
+        cout << setw(8) << "Overdue?" << setw(6) << "Fine" << "\n";
+        for(int id: db.users[uidx].borrowedBooks) {
+            int bidx = searchBookById(id);
+            if(bidx==-1) continue;
+            Book& b = db.books[bidx];
+            cout << setw(3)<<id<<setw(20)<<b.title.substr(0,17)
+                 <<setw(10)<<b.issuedDate.str();
+            int days = Date::today().daysSince(b.issuedDate);
+            if(days > 15)
+                cout << setw(8) << "YES" << setw(6) << ((days-15)*2);
+            else
+                cout << setw(8) << "NO" << setw(6) << "0";
+            cout << "\n";
+        }
+    }
+    void listAllUsers() {
+        cout << setw(15) << "Username" << setw(15) << "Name" << setw(10) << "Type" << setw(15) << "Books";
+        cout << "\n";
+        for(auto& u: db.users) {
+            cout << setw(15)<<u.username << setw(15)<<u.name
+                 << setw(10)<<u.type;
+            for(auto bid:u.borrowedBooks) cout << " " << bid;
+            cout << "\n";
+        }
+    }
+    void addUser() {
+        cout << "Registering new user:\n";
+        User u; u.input();
+        if(searchUser(u.username)!=-1) { cout << "Username taken!\n"; return; }
+        db.users.push_back(u); db.saveUsers();
+        cout << "User registered.\n";
+    }
+    void removeUser() {
+        cout << "Enter username to remove: ";
+        string u; cin >> u;
+        int idx = searchUser(u);
+        if(idx==-1) { cout << "User not found!\n"; return;}
+        db.users.erase(db.users.begin()+idx);
+        db.saveUsers();
+        cout << "User removed.\n";
+    }
+    void showHelp() {
+        cout << "Library Management System - Commands:\n";
+        cout << "Admin: add book, remove book, list, details, add user, remove user, users, logout\n";
+        cout << "Student: list, borrow, return, mybooks, details, logout\n";
+    }
+    // Authentication
+    bool login() {
+        string u, p;
+        cout << "Username: "; cin >> u;
+        cout << "Password: "; cin >> p;
+        db.loadUsers();
+        for(auto& user: db.users) {
+            if(user.username == u && user.password == p) {
+                currentUser = user;
+                cout << "Welcome, " << currentUser.name << " (" << currentUser.type << ")\n";
+                return true;
+            }
+        }
+        cout << "Login failed!\n";
+        return false;
+    }
+    void logout() {
+        cout << "Logged out.\n"; currentUser = User();
+    }
+    void studentMenu() {
+        while(true) {
+            cout << "\n1. List Books\n2. View Book Detail\n3. Borrow Book\n4. Return Book\n5. My Borrowed Books\n0. Logout\nChoice: ";
+            int c; cin >> c;
+            switch(c) {
+                case 1: listAllBooks(); break;
+                case 2: viewBookDetail(); break;
+                case 3: issueBook(); break;
+                case 4: returnBook(); break;
+                case 5: viewBorrowedBooks(); break;
+                case 0: logout(); return;
+                default: cout << "Invalid!\n";
+            }
+            pressEnter();
+        }
+    }
+    void adminMenu() {
+        while(true) {
+            cout << "\n-- Admin Menu --\n";
+            cout << "1. List All Books\n2. List Books by Category\n3. Add Book\n4. Remove Book\n";
+            cout << "5. Details of a Book\n6. Add User\n7. Remove User\n8. All Users\n9. Help\n0. Logout\nChoice:";
+            int c; cin >> c;
+            switch(c) {
+                case 1: listAllBooks(); break;
+                case 2: listBooksByCategory(); break;
+                case 3: addBook(); break;
+                case 4: removeBook(); break;
+                case 5: viewBookDetail(); break;
+                case 6: addUser(); break;
+                case 7: removeUser(); break;
+                case 8: listAllUsers(); break;
+                case 9: showHelp(); break;
+                case 0: logout(); return;
+                default: cout<<"Invalid!\n";
+            }
+            pressEnter();
+        }
+    }
+public:
+    // === Entrypoint ===
+    void run() {
+        db.ensureAdminExists(); db.loadBooks(); db.loadUsers(); db.loadHistory();
+        cout << "--- Library Management System ---\n";
+        while(true) {
+            cout << "\n1. Login\n2. Register (student)\n0. Exit\nChoice: "; int x; cin >> x;
+            if(x==0) break;
+            if(x==2) { addUser(); pressEnter(); continue; }
+            if(login()) {
+                if(currentUser.type=="admin") adminMenu();
+                else studentMenu();
+            }
+        }
+        db.saveBooks(); db.saveUsers(); db.saveHistory();
+        cout << "Thank you!\n";
+    }
+};
+
+int main() {
+    Library app;
+    app.run();
+    return 0;
+}
