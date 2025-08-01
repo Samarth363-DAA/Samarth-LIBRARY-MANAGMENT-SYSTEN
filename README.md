@@ -1,2 +1,3 @@
 #LIBRARY-MANAGMENT-SYSTEN
-Samarth.B LIBRARY MANAGMENT SYSTEM
+Author:- Samarth.B
+Domain:- Library Managment System
