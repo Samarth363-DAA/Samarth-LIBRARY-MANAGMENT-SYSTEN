@@ -22,5 +22,7 @@ This project is a simple Library Management System with:
 ---
 
 ## 🔹 Project Structure
+index.html    → Frontend website (visible online)
+main.cpp      → Backend C++ code (download and run locally)
 
 
